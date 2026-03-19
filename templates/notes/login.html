@@ -1,0 +1,167 @@
+{% extends 'base.html' %}
+<!-- extends → this page INHERITS from base.html -->
+<!-- Think of base.html as a frame, login.html fills in the picture -->
+
+{% block title %}Login — Notes App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+
+        <!-- CARD — Bootstrap's box component -->
+        <div class="card shadow">
+            <div class="card-body p-4">
+
+                <h3 class="card-title text-center mb-4">
+                    📝 Welcome Back
+                </h3>
+
+                <!-- ERROR ALERT — hidden by default, shown on failed login -->
+                <div 
+                    id="error-alert" 
+                    class="alert alert-danger d-none"
+                    <!-- d-none = display:none → hidden until we need it -->
+                
+                </div>
+
+                <!-- LOGIN FORM -->
+                <!-- No action or method — JavaScript handles the submission -->
+                <form id="login-form">
+
+                    <!-- USERNAME FIELD -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Username</label>
+                        <input 
+                            type="text" 
+                            id="username"
+                            class="form-control"
+                            placeholder="Enter your username"
+                            required
+                            <!-- required → browser won't submit if empty -->
+                                
+                        >
+                    </div>
+
+                    <!-- PASSWORD FIELD -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Password</label>
+                        <input 
+                            type="password" 
+                            id="password"
+                            class="form-control"
+                            placeholder="Enter your password"
+                            required
+                        >
+                    </div>
+
+                    <!-- SUBMIT BUTTON -->
+                    <div class="d-grid">
+                        <!-- d-grid makes the button full width -->
+                        <button 
+                            type="submit" 
+                            id="login-btn"
+                            class="btn btn-dark btn-lg"
+                        >
+                            Login
+                        </button>
+                    </div>
+
+                </form>
+
+                <!-- REGISTER LINK -->
+                <hr>
+                <p class="text-center mb-0">
+                    No account? 
+                    <a href="/register/">Create one</a>
+                </p>
+
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Grab the form element
+const loginForm = document.getElementById('login-form');
+const errorAlert = document.getElementById('error-alert');
+const loginBtn = document.getElementById('login-btn');
+
+// Listen for form submission
+loginForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    // e.preventDefault() → stops the browser's default form behavior
+    // (which would reload the page)
+    // We handle it ourselves with JavaScript instead
+
+    // Read values from the input fields
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+
+    // Show loading state so user knows something is happening
+    loginBtn.innerHTML = 'Logging in...';
+    loginBtn.disabled = true;
+    // .disabled = true → prevents double clicking while waiting
+
+    // Hide any previous error
+    errorAlert.classList.add('d-none');
+
+    try {
+        // fetch() → JavaScript's built-in tool to make HTTP requests
+        // This is what sends the POST request to your Django API
+        const response = await fetch('/api/v1/auth/login/', {
+            // await → "wait here until the API responds before continuing"
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                // Tells Django: "I'm sending JSON, not a form"
+            },
+            body: JSON.stringify({ username, password }),
+            // JSON.stringify() → converts JS object to JSON string
+            // { username, password } is shorthand for:
+            // { "username": username, "password": password }
+        });
+
+        const data = await response.json();
+        // response.json() → reads the response body and parses it
+        // into a JavaScript object we can use
+
+        if (response.ok) {
+            // response.ok → true if status is 200-299
+            // false if 400, 401, 500 etc.
+
+            // Save token to localStorage
+            // localStorage → browser storage that survives page refresh
+            // Like a small database inside the browser
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('username', data.username);
+            localStorage.setItem('user_id', data.user_id);
+
+            // Redirect to notes page
+            window.location.href = '/notes/';
+
+        } else {
+            // Login failed — show the error from Django
+            showError(data.error || 'Login failed. Try again.');
+        }
+
+    } catch (error) {
+        // This catches network errors (e.g. server is down)
+        showError('Cannot connect to server. Is Django running?');
+    }
+
+    // Reset button back to normal
+    loginBtn.innerHTML = 'Login';
+    loginBtn.disabled = false;
+});
+
+function showError(message) {
+    errorAlert.textContent = message;
+    // .textContent → safely sets text (no HTML injection risk)
+    errorAlert.classList.remove('d-none');
+    // remove('d-none') → makes the alert visible
+}
+</script>
+{% endblock %}

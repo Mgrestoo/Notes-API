@@ -1,0 +1,360 @@
+{% extends 'base.html' %}
+
+{% block title %}My Notes{% endblock %}
+
+{% block content %}
+
+<!-- PAGE HEADER -->
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold mb-0">📝 My Notes</h2>
+    <span id="note-count" class="badge bg-dark fs-6">
+        <!-- JavaScript fills this with the number of notes -->
+    </span>
+</div>
+
+<!-- ERROR ALERT — hidden until needed -->
+<div id="error-alert" class="alert alert-danger d-none"></div>
+
+<!-- SUCCESS ALERT — hidden until needed -->
+<div id="success-alert" class="alert alert-success d-none"></div>
+
+<!-- CREATE NOTE CARD -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <h5 class="card-title fw-bold mb-3">✚ New Note</h5>
+
+        <!-- TITLE INPUT -->
+        <div class="mb-2">
+            <input 
+                type="text" 
+                id="note-title"
+                class="form-control"
+                placeholder="Note title..."
+            >
+            <!-- Error message for title -->
+            <small id="title-error" class="text-danger d-none"></small>
+        </div>
+
+        <!-- CONTENT INPUT -->
+        <div class="mb-3">
+            <textarea 
+                id="note-content"
+                class="form-control"
+                rows="3"
+                placeholder="Write your note here..."
+            ></textarea>
+            <!-- Error message for content -->
+            <small id="content-error" class="text-danger d-none"></small>
+        </div>
+
+        <!-- SUBMIT BUTTON -->
+        <div class="d-grid">
+            <button 
+                id="add-btn"
+                class="btn btn-dark"
+                onclick="createNote()"
+            >
+                Add Note
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- LOADING SPINNER — shown while fetching notes -->
+<div id="loading" class="text-center py-5">
+    <div class="spinner-border text-dark" role="status">
+        <!-- spinner-border = Bootstrap's loading animation -->
+    </div>
+    <p class="mt-2 text-muted">Loading your notes...</p>
+</div>
+
+<!-- EMPTY STATE — shown when user has no notes -->
+<div id="empty-state" class="text-center py-5 d-none">
+    <p class="fs-1">📭</p>
+    <h5 class="text-muted">No notes yet</h5>
+    <p class="text-muted">Create your first note above!</p>
+</div>
+
+<!-- NOTES GRID — JavaScript fills this with note cards -->
+<div id="notes-grid" class="row g-3 d-none">
+    <!-- g-3 = gap between cards -->
+    <!-- Cards are injected here by JavaScript -->
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ─────────────────────────────────────────────
+// SETUP — Run when page loads
+// ─────────────────────────────────────────────
+
+// Read token from localStorage
+// If no token → user is not logged in → send to login page
+const token = localStorage.getItem('token');
+if (!token) {
+    window.location.href = '/login/';
+    // This protects the page — can't access notes without logging in
+}
+
+// Build the Authorization header we'll use on every API request
+// Instead of typing it every time, we store it in a variable
+const authHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Token ${token}`,
+    // Template literal → inserts the token variable into the string
+    // Result: "Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
+};
+
+// Grab all the elements we'll need to interact with
+const notesGrid    = document.getElementById('notes-grid');
+const loading      = document.getElementById('loading');
+const emptyState   = document.getElementById('empty-state');
+const errorAlert   = document.getElementById('error-alert');
+const successAlert = document.getElementById('success-alert');
+const noteCount    = document.getElementById('note-count');
+
+
+// ─────────────────────────────────────────────
+// FETCH ALL NOTES — runs automatically on load
+// ─────────────────────────────────────────────
+async function fetchNotes() {
+    try {
+        const response = await fetch('/api/v1/notes/', {
+            method: 'GET',
+            headers: authHeaders,
+            // GET request to /api/v1/notes/ with token
+            // Django's get_queryset() filters by owner → only YOUR notes
+        });
+
+        if (response.status === 401) {
+            // 401 = token expired or invalid
+            // Clear storage and force login again
+            localStorage.clear();
+            window.location.href = '/login/';
+            return;
+        }
+
+        const data = await response.json();
+        // data looks like:
+        // {
+        //   "count": 2,
+        //   "results": [ {...}, {...} ]
+        // }
+        // "results" comes from DRF pagination we set up in settings.py
+
+        // Hide the loading spinner
+        loading.classList.add('d-none');
+
+        if (data.results.length === 0) {
+            // No notes → show empty state
+            emptyState.classList.remove('d-none');
+        } else {
+            // Has notes → show the grid
+            notesGrid.classList.remove('d-none');
+            renderNotes(data.results);
+            // Update the count badge
+            noteCount.textContent = `${data.count} notes`;
+        }
+
+    } catch (error) {
+        loading.classList.add('d-none');
+        showError('Could not load notes. Is Django running?');
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// RENDER NOTES — builds the HTML cards
+// ─────────────────────────────────────────────
+function renderNotes(notes) {
+    // .map() → loops over the array and transforms each item
+    // Here we turn each note object into an HTML string
+    notesGrid.innerHTML = notes.map(note => `
+        <div class="col-md-4" id="note-${note.id}">
+            <!-- col-md-4 = 3 cards per row on medium screens -->
+            <div class="card h-100 shadow-sm">
+                <div class="card-body">
+
+                    <!-- NOTE TITLE -->
+                    <h5 class="card-title fw-bold">${note.title}</h5>
+
+                    <!-- NOTE CONTENT -->
+                    <p class="card-text text-muted">${note.content}</p>
+
+                </div>
+                <div class="card-footer bg-white border-0">
+
+                    <!-- TIMESTAMP -->
+                    <small class="text-muted">
+                        🕒 ${formatDate(note.created_at)}
+                    </small>
+
+                    <!-- DELETE BUTTON -->
+                    <button 
+                        class="btn btn-outline-danger btn-sm float-end"
+                        onclick="deleteNote(${note.id})"
+                        <!-- passes the note's id to deleteNote() -->
+                    >
+                        🗑️ Delete
+                    </button>
+
+                </div>
+            </div>
+        </div>
+    `).join('');
+    // .join('') → combines all the HTML strings into one big string
+}
+
+
+// ─────────────────────────────────────────────
+// CREATE NOTE
+// ─────────────────────────────────────────────
+async function createNote() {
+    // Read values from inputs
+    const title   = document.getElementById('note-title').value;
+    const content = document.getElementById('note-content').value;
+
+    // Clear previous field errors
+    document.getElementById('title-error').classList.add('d-none');
+    document.getElementById('content-error').classList.add('d-none');
+
+    // Basic frontend check before even hitting the API
+    if (!title || !content) {
+        if (!title) showFieldError('title-error', 'Title is required.');
+        if (!content) showFieldError('content-error', 'Content is required.');
+        return;
+        // return → stops the function here, doesn't call the API
+    }
+
+    // Show loading state on button
+    const addBtn = document.getElementById('add-btn');
+    addBtn.innerHTML = 'Adding...';
+    addBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/v1/notes/', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({ title, content }),
+            // Sends: { "title": "...", "content": "..." }
+            // Django's NoteSerializer validates this
+            // perform_create() adds the owner automatically
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Clear the input fields
+            document.getElementById('note-title').value = '';
+            document.getElementById('note-content').value = '';
+
+            showSuccess('Note created!');
+
+            // Refresh the notes list to show the new note
+            fetchNotes();
+
+        } else {
+            // Django's serializer returned validation errors
+            // data looks like: { "title": ["Too short"], "content": ["blank"] }
+            if (data.title) showFieldError('title-error', data.title[0]);
+            if (data.content) showFieldError('content-error', data.content[0]);
+        }
+
+    } catch (error) {
+        showError('Could not create note.');
+    }
+
+    addBtn.innerHTML = 'Add Note';
+    addBtn.disabled = false;
+}
+
+
+// ─────────────────────────────────────────────
+// DELETE NOTE
+// ─────────────────────────────────────────────
+async function deleteNote(id) {
+    // id → the note's id passed from the delete button's onclick
+
+    // Ask user to confirm before deleting
+    if (!confirm('Delete this note?')) return;
+    // confirm() → browser popup with OK/Cancel
+    // If they click Cancel → return stops the function
+
+    try {
+        const response = await fetch(`/api/v1/notes/${id}/`, {
+            // Template literal builds URL: /api/v1/notes/3/
+            method: 'DELETE',
+            headers: authHeaders,
+            // No body needed for DELETE
+        });
+
+        if (response.status === 204) {
+            // 204 = success, no content returned
+            // Remove the card from the page WITHOUT refreshing
+            document.getElementById(`note-${id}`).remove();
+            // getElementById(`note-${id}`) → finds <div id="note-3">
+            // .remove() → deletes it from the DOM instantly
+
+            showSuccess('Note deleted!');
+
+            // Update count
+            const remaining = notesGrid.querySelectorAll('.col-md-4').length;
+            // .querySelectorAll() → finds all matching elements
+            // .length → counts them
+            noteCount.textContent = `${remaining} notes`;
+
+            // Show empty state if no notes left
+            if (remaining === 0) {
+                notesGrid.classList.add('d-none');
+                emptyState.classList.remove('d-none');
+            }
+        }
+
+    } catch (error) {
+        showError('Could not delete note.');
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// HELPER FUNCTIONS
+// ─────────────────────────────────────────────
+function showError(message) {
+    errorAlert.textContent = message;
+    errorAlert.classList.remove('d-none');
+    // Auto hide after 4 seconds
+    setTimeout(() => errorAlert.classList.add('d-none'), 4000);
+    // setTimeout → runs a function after a delay (milliseconds)
+    // 4000ms = 4 seconds
+}
+
+function showSuccess(message) {
+    successAlert.textContent = message;
+    successAlert.classList.remove('d-none');
+    setTimeout(() => successAlert.classList.add('d-none'), 3000);
+}
+
+function showFieldError(elementId, message) {
+    const el = document.getElementById(elementId);
+    el.textContent = message;
+    el.classList.remove('d-none');
+}
+
+function formatDate(dateString) {
+    // dateString comes from Django as: "2024-01-15T10:30:00Z"
+    // We convert it to something readable: "Jan 15, 2024"
+    return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
+
+// ─────────────────────────────────────────────
+// START — fetch notes as soon as page loads
+// ─────────────────────────────────────────────
+fetchNotes();
+</script>
+{% endblock %}

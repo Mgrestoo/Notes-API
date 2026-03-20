@@ -1,7 +1,4 @@
 
-from ast import Is
-from re import search
-from turtle import title
 from rest_framework.viewsets import ModelViewSet
 from .models import Note
 from .serializers import NoteSerializer
@@ -89,3 +86,5 @@ def register_page(request):
     return render(request, 'notes/register.html')
 def notes_page(request):
     return render(request, 'notes/notes.html')
+
+    

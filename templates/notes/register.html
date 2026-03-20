@@ -3,6 +3,229 @@
 {% block title %}Register — Notes App{% endblock %}
 
 {% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card shadow">
+            <div class="card-body p-4">
 
-<h2 class="text-center">Register</h2>
-{%endblock%}
+                <h3 class="card-title text-center mb-4">
+                    📝 Create Account
+                </h3>
+
+                <!-- ERROR ALERT -->
+                <div id="error-alert" class="alert alert-danger d-none"></div>
+
+                <!-- SUCCESS ALERT -->
+                <div id="success-alert" class="alert alert-success d-none"></div>
+
+                <!-- REGISTER FORM -->
+                <form id="register-form">
+
+                    <!-- USERNAME -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Username</label>
+                        <input type="text" id="username" class="form-control" placeholder="Choose a username">
+                        <small id="username-error" class="text-danger d-none"></small>
+                    </div>
+
+                    <!-- PASSWORD -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Password</label>
+                        <input type="password" id="password" class="form-control" placeholder="Choose a password">
+                        <small id="password-error" class="text-danger d-none"></small>
+                    </div>
+
+                    <!-- CONFIRM PASSWORD -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Confirm Password</label>
+                        <input type="password" id="confirm-password" class="form-control"
+                            placeholder="Repeat your password">
+                        <small id="confirm-error" class="text-danger d-none"></small>
+                        <!-- 
+                            This field doesn't go to Django at all.
+                            It's purely a frontend check — we just compare
+                            password and confirm-password in JavaScript
+                            before even hitting the API.
+                        -->
+                    </div>
+
+                    <!-- SUBMIT -->
+                    <div class="d-grid">
+                        <button type="submit" id="register-btn" class="btn btn-dark btn-lg">
+                            Create Account
+                        </button>
+                    </div>
+
+                </form>
+
+                <hr>
+                <p class="text-center mb-0">
+                    Already have an account?
+                    <a href="/login/">Login</a>
+                </p>
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // ─────────────────────────────────────────────
+    // SETUP
+    // ─────────────────────────────────────────────
+
+    // If user is already logged in → no need to register
+    // Send them straight to notes page
+    if (localStorage.getItem('token')) {
+        window.location.href = '/notes/';
+    }
+
+    const registerForm = document.getElementById('register-form');
+    const registerBtn = document.getElementById('register-btn');
+    const errorAlert = document.getElementById('error-alert');
+    const successAlert = document.getElementById('success-alert');
+
+
+    // ─────────────────────────────────────────────
+    // FORM SUBMISSION
+    // ─────────────────────────────────────────────
+    registerForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        // Stop browser default behavior (page reload)
+
+        // Read all three input values
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        // .trim() → removes accidental spaces
+        // "  john  " → "john"
+
+        // Clear all previous errors before re-validating
+        clearErrors();
+
+        // ── FRONTEND VALIDATION ──────────────────
+        // We check BEFORE hitting the API to give
+        // instant feedback without a network round trip
+        let hasError = false;
+        // hasError flag → tracks if ANY field failed
+        // We check all fields first, then stop if any failed
+
+        if (!username) {
+            showFieldError('username-error', 'Username is required.');
+            hasError = true;
+        } else if (username.length < 3) {
+            showFieldError('username-error', 'Username must be at least 3 characters.');
+            hasError = true;
+        }
+
+        if (!password) {
+            showFieldError('password-error', 'Password is required.');
+            hasError = true;
+        } else if (password.length < 6) {
+            showFieldError('password-error', 'Password must be at least 6 characters.');
+            hasError = true;
+        }
+
+        if (!confirmPassword) {
+            showFieldError('confirm-error', 'Please confirm your password.');
+            hasError = true;
+        } else if (password !== confirmPassword) {
+            // !== means "not equal to"
+            showFieldError('confirm-error', 'Passwords do not match.');
+            hasError = true;
+        }
+
+        // If any validation failed → stop here, don't call API
+        if (hasError) return;
+
+        // ── CALL THE API ─────────────────────────
+        registerBtn.textContent = 'Creating account...';
+        registerBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/v1/auth/register/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // No Authorization header needed here
+                    // Register is AllowAny — open to everyone
+                },
+                body: JSON.stringify({ username, password }),
+                // Note: we only send username and password to Django
+                // confirmPassword is frontend only — Django never sees it
+            });
+
+            const data = await response.json();
+            // data = { token: "xxx", user_id: 1, username: "john" }
+            // OR   = { error: "Username already taken." }
+
+            if (response.ok) {
+                // ── SUCCESS ──────────────────────
+                // Account created → save token immediately
+                // User is automatically logged in after registering
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', data.username);
+                localStorage.setItem('user_id', data.user_id);
+
+                // Show success message briefly before redirecting
+                showSuccess('Account created! Redirecting...');
+
+                // Wait 1.5 seconds so user can see the message
+                // then redirect to notes page
+                setTimeout(() => {
+                    window.location.href = '/notes/';
+                }, 1500);
+                // setTimeout(function, milliseconds)
+                // 1500ms = 1.5 seconds
+
+            } else {
+                // ── API ERROR ────────────────────
+                // Django returned an error e.g. username taken
+                showError(data.error || 'Registration failed. Try again.');
+            }
+
+        } catch (error) {
+            // Network error — Django not running etc.
+            showError('Cannot connect to server. Is Django running?');
+        }
+
+        registerBtn.textContent = 'Create Account';
+        registerBtn.disabled = false;
+    });
+
+
+    // ─────────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ─────────────────────────────────────────────
+    function clearErrors() {
+        // Hide ALL error messages before re-validating
+        // So old errors don't stay on screen
+        ['username-error', 'password-error', 'confirm-error'].forEach(id => {
+            // .forEach() → loops over the array
+            // For each id → find the element and hide it
+            const el = document.getElementById(id);
+            el.textContent = '';
+            el.classList.add('d-none');
+        });
+        errorAlert.classList.add('d-none');
+    }
+
+    function showFieldError(elementId, message) {
+        const el = document.getElementById(elementId);
+        el.textContent = message;
+        el.classList.remove('d-none');
+    }
+
+    function showError(message) {
+        errorAlert.textContent = message;
+        errorAlert.classList.remove('d-none');
+    }
+
+    function showSuccess(message) {
+        successAlert.textContent = message;
+        successAlert.classList.remove('d-none');
+    }
+</script>
+{% endblock %}
